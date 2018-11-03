@@ -3,6 +3,9 @@
 # This file is part of Networklore's snmp library for Ansible
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+# 2018-11-03 - UPDATED BY MAARTEN WALLRAF
+#              TO RETURN OUTPUT VARIABLES AS A DICT OF { 'snmp_facts: { ... } }
+
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
@@ -443,6 +446,11 @@ def main():
         results['ansible_interfaces'][int(interface)]['ipv4'] = interface_to_ipv4[interface]
 
     results['ansible_all_ipv4_addresses'] = all_ipv4_addresses
+
+    if m_args['version']:
+        results["version"] = m_args['version']
+    if m_args['community']:
+        results["community"] = m_args['community']
 
     results = { "snmp_facts": results }
 
