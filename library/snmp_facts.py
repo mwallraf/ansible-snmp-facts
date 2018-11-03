@@ -265,6 +265,7 @@ def main():
             host=dict(required=True),
             version=dict(required=True, choices=['v2', 'v2c', 'v3']),
             community=dict(required=False, default=False),
+            communities=dict(type='list', required=False, default=[]),
             username=dict(required=False),
             level=dict(required=False, choices=['authNoPriv', 'authPriv']),
             integrity=dict(required=False, choices=['md5', 'sha']),
@@ -284,7 +285,7 @@ def main():
 
     # Verify that we receive a community when using snmp v2
     if m_args['version'] == "v2" or m_args['version'] == "v2c":
-        if m_args['community'] is False:
+        if not (m_args['communities'] or m_args['communities']):
             module.fail_json(msg='Community not set when using snmp version 2')
 
     if m_args['version'] == "v3":
@@ -304,9 +305,35 @@ def main():
         elif m_args['privacy'] == "des":
             privacy_proto = cmdgen.usmDESPrivProtocol
 
+
+    # Use p to prefix OIDs with a dot for polling
+    p = DefineOid(dotprefix=True)
+    # Use v without a prefix to use with return values
+    v = DefineOid(dotprefix=False)
+
     # Use SNMP Version 2
+    # if m_args['community'] is defined then use this one,
+    #  else if m_args['communities'] is defined then
+    #  try until a working community is found
     if m_args['version'] == "v2" or m_args['version'] == "v2c":
-        snmp_auth = cmdgen.CommunityData(m_args['community'])
+        if str(m_args['community']).lower() != 'false':
+            snmp_auth = cmdgen.CommunityData(m_args['community'])
+        else:
+            snmp_auth = None
+            errorIndication = None
+            for community in m_args['communities']:
+                errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
+                    cmdgen.CommunityData(community),
+                    cmdgen.UdpTransportTarget((m_args['host'], 161)),
+                    cmdgen.MibVariable(p.sysObjectId,),
+                    lookupMib=False
+                )
+                if not errorIndication:
+                    m_args['community'] = community
+                    snmp_auth = cmdgen.CommunityData(community)
+                    break
+            if not snmp_auth:
+                module.fail_json(msg=str(errorIndication))
 
     # Use SNMP Version 3 with authNoPriv
     elif m_args['level'] == "authNoPriv":
@@ -316,11 +343,6 @@ def main():
     else:
         snmp_auth = cmdgen.UsmUserData(m_args['username'], authKey=m_args['authkey'], privKey=m_args['privkey'], authProtocol=integrity_proto,
                                        privProtocol=privacy_proto)
-
-    # Use p to prefix OIDs with a dot for polling
-    p = DefineOid(dotprefix=True)
-    # Use v without a prefix to use with return values
-    v = DefineOid(dotprefix=False)
 
     def Tree():
         return defaultdict(Tree)
@@ -371,7 +393,6 @@ def main():
         cmdgen.MibVariable(p.ipAdEntAddr,),
         cmdgen.MibVariable(p.ipAdEntIfIndex,),
         cmdgen.MibVariable(p.ipAdEntNetMask,),
-
         cmdgen.MibVariable(p.ifAlias,),
         lookupMib=False
     )
@@ -388,6 +409,8 @@ def main():
         for oid, val in varBinds:
             current_oid = oid.prettyPrint()
             current_val = val.prettyPrint()
+            if 'No more variables' in current_val:
+                continue
             if v.ifIndex in current_oid:
                 ifIndex = int(current_oid.rsplit('.', 1)[-1])
                 results['ansible_interfaces'][ifIndex]['ifindex'] = current_val
@@ -423,7 +446,6 @@ def main():
                 curIPList = current_oid.rsplit('.', 4)[-4:]
                 curIP = ".".join(curIPList)
                 ipv4_networks[curIP]['netmask'] = current_val
-
             if v.ifAlias in current_oid:
                 ifIndex = int(current_oid.rsplit('.', 1)[-1])
                 results['ansible_interfaces'][ifIndex]['description'] = current_val
@@ -443,7 +465,7 @@ def main():
             interface_to_ipv4[current_interface].append(current_network)
 
     for interface in interface_to_ipv4:
-        results['ansible_interfaces'][int(interface)]['ipv4'] = interface_to_ipv4[interface]
+            results['ansible_interfaces'][int(interface)]['ipv4'] = interface_to_ipv4[interface]
 
     results['ansible_all_ipv4_addresses'] = all_ipv4_addresses
 
