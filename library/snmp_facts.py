@@ -467,6 +467,10 @@ def main():
     for interface in interface_to_ipv4:
             results['ansible_interfaces'][int(interface)]['ipv4'] = interface_to_ipv4[interface]
 
+    # convert dict to list of dicts for easier parsing
+    interfaces_result = [ results['ansible_interfaces'][x] for x in results['ansible_interfaces'].keys() ]
+    results['ansible_interfaces'] = interfaces_result
+    
     results['ansible_all_ipv4_addresses'] = all_ipv4_addresses
 
     if m_args['version']:
